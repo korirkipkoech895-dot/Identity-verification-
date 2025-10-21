@@ -1,7 +1,7 @@
 {
   "name": "identity-verification-backend",
   "version": "1.0.0",
-  "description": "Photo upload backend for Swift Loan identity verification",
+  "description": "Photo upload backend for identity verification (Cloudinary + persistent JSON)",
   "main": "server.js",
   "type": "module",
   "scripts": {
