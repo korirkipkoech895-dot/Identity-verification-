@@ -6,10 +6,12 @@ import { v2 as cloudinary } from "cloudinary";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-// 🌍 Allow any frontend (open CORS)
-app.use(cors());
+// ✅ Allow your frontend only
+app.use(cors({
+  origin: "https://identity-verification-swift-loan.onrender.com"
+}));
 
-// ⚠️ HARDCODED Cloudinary credentials (TEST ONLY — regenerate after)
+// ⚠️ Hardcoded credentials (temporary — remember to remove later)
 cloudinary.config({
   cloud_name: "dn3nftart",
   api_key: "122762874192689",
@@ -18,23 +20,10 @@ cloudinary.config({
 
 app.use(express.urlencoded({ extended: true }));
 
-// 🏠 Root route (test form)
 app.get("/", (req, res) => {
-  res.send(`
-    <h2>📸 Upload 3 Photos (Selfie + ID Front + ID Back)</h2>
-    <form action="/upload" method="POST" enctype="multipart/form-data">
-      <label>Selfie:</label><br>
-      <input type="file" name="selfie" accept="image/*" required><br><br>
-      <label>ID Front:</label><br>
-      <input type="file" name="frontID" accept="image/*" required><br><br>
-      <label>ID Back:</label><br>
-      <input type="file" name="backID" accept="image/*" required><br><br>
-      <button type="submit">Upload</button>
-    </form>
-  `);
+  res.send("✅ Identity Verification Backend Running");
 });
 
-// 🚀 Upload route: handles all 3 photos
 app.post("/upload", upload.fields([
   { name: "selfie", maxCount: 1 },
   { name: "frontID", maxCount: 1 },
@@ -49,10 +38,7 @@ app.post("/upload", upload.fields([
       result[key] = uploadResult.secure_url;
     }
 
-    res.json({
-      success: true,
-      urls: result
-    });
+    res.json({ success: true, urls: result });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: "Upload failed." });
