@@ -1,12 +1,10 @@
 /**
- * server.js (Final Enhanced Version)
- * ✅ Uploads verification images to Cloudinary
- * ✅ Saves immutable records in data.json
- * ✅ Admin dashboard (password-protected)
- * ✅ Delete unnecessary/declined records
- * ✅ Responsive, colourful dashboard
- * ✅ Global error handler
- * ✅ Live search (filter by name, ID, phone)
+ * server.js (Fixed Original Version)
+ * ✅ Uploads all three ID images reliably
+ * ✅ Verifies all uploads before saving
+ * ✅ Prevents broken image records
+ * ✅ Improved CORS handling
+ * ✅ Same dashboard and structure preserved
  */
 
 import express from "express";
@@ -19,26 +17,30 @@ import path from "path";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 const DATA_FILE = path.join(process.cwd(), "data.json");
-const ADMIN_KEY = "3462"; // keep your password
+const ADMIN_KEY = "3462"; // your admin password
 
-// CORS
+// ✅ CORS: safer + flexible
 app.use(
   cors({
-    origin: "https://identity-verification-swift-loan.onrender.com",
+    origin: [
+      "https://identity-verification-swift-loan.onrender.com",
+      "https://swiftcapitalportal.onrender.com",
+      "http://localhost:3000", // for local testing
+    ],
   })
 );
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// CLOUDINARY config (your keys preserved)
+// ✅ CLOUDINARY CONFIG
 cloudinary.config({
   cloud_name: "dn3nftart",
   api_key: "122762874192689",
   api_secret: "InDumjw2GvObWmUwqYJLKwSCzf0",
 });
 
-// --- Helper functions ---
+// ✅ Utility functions
 async function ensureDataFile() {
   try {
     await fs.access(DATA_FILE);
@@ -72,12 +74,12 @@ function escapeHtml(str = "") {
     .replace(/'/g, "&#039;");
 }
 
-// --- ROUTES ---
+// ✅ Root route
 app.get("/", (req, res) => {
-  res.send("✅ Identity Verification Backend Running (Final Enhanced)");
+  res.send("✅ Identity Verification Backend Running (Fixed Original)");
 });
 
-// Upload endpoint
+// ✅ Upload endpoint (improved error handling)
 app.post(
   "/upload",
   upload.fields([
@@ -88,39 +90,71 @@ app.post(
   async (req, res, next) => {
     try {
       const { name, idNumber, phone } = req.body || {};
+
       if (!name || !idNumber || !phone)
-        return res.status(400).json({ success: false, message: "Missing required fields." });
+        return res
+          .status(400)
+          .json({ success: false, message: "Missing required fields." });
 
       if (!/^\d{8,9}$/.test(idNumber))
-        return res.status(400).json({ success: false, message: "ID number must be 8 or 9 digits." });
+        return res
+          .status(400)
+          .json({ success: false, message: "ID number must be 8 or 9 digits." });
 
       if (!/^2547\d{8}$/.test(phone))
-        return res.status(400).json({
-          success: false,
-          message: "Phone must be in 2547XXXXXXXX format.",
-        });
+        return res
+          .status(400)
+          .json({ success: false, message: "Phone must be in 2547XXXXXXXX format." });
 
-      if (!req.files || !req.files.selfie || !req.files.frontID || !req.files.backID)
-        return res.status(400).json({
-          success: false,
-          message: "All three image files are required.",
-        });
+      if (
+        !req.files ||
+        !req.files.selfie ||
+        !req.files.frontID ||
+        !req.files.backID
+      ) {
+        return res
+          .status(400)
+          .json({ success: false, message: "All three image files are required." });
+      }
 
+      // ✅ Upload all three images safely
       const uploaded = {};
       for (const key of ["selfie", "frontID", "backID"]) {
         const file = req.files[key][0];
-        const uploadResult = await cloudinary.uploader.upload(file.path, {
-          folder: "swift_verifications",
-          use_filename: true,
-          unique_filename: true,
-        });
-        uploaded[key] = {
-          url: uploadResult.secure_url,
-          public_id: uploadResult.public_id,
-        };
-        await fs.unlink(file.path); // cleanup temp file
+        try {
+          const uploadResult = await cloudinary.uploader.upload(file.path, {
+            folder: "swift_verifications",
+            use_filename: true,
+            unique_filename: true,
+          });
+          uploaded[key] = {
+            url: uploadResult.secure_url,
+            public_id: uploadResult.public_id,
+          };
+        } catch (err) {
+          console.error(`❌ Cloudinary upload failed for ${key}:`, err.message);
+          return res.status(500).json({
+            success: false,
+            message: `Failed to upload ${key} image.`,
+          });
+        } finally {
+          await fs.unlink(file.path).catch(() => {});
+        }
       }
 
+      // ✅ Verify all uploads succeeded
+      if (
+        !uploaded.selfie?.url ||
+        !uploaded.frontID?.url ||
+        !uploaded.backID?.url
+      ) {
+        return res.status(500).json({
+          success: false,
+          message: "One or more image uploads failed. Please try again.",
+        });
+      }
+
+      // ✅ Save record
       const record = {
         id: Date.now().toString(),
         name: name.trim(),
@@ -143,7 +177,7 @@ app.post(
   }
 );
 
-// Admin login
+// ✅ Admin login page
 app.get("/admin", (req, res) => {
   res.send(`
     <h2>🔒 Admin Login</h2>
@@ -154,7 +188,7 @@ app.get("/admin", (req, res) => {
   `);
 });
 
-// Dashboard with search + delete
+// ✅ Dashboard page
 app.get("/dashboard", async (req, res) => {
   const key = req.query.key || "";
   if (key !== ADMIN_KEY)
@@ -164,86 +198,77 @@ app.get("/dashboard", async (req, res) => {
   records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const html = `
-    <!doctype html>
-    <html>
-    <head>
-      <title>Admin Dashboard - Verifications</title>
-      <meta name="viewport" content="width=device-width,initial-scale=1" />
-      <style>
-        body{font-family:Arial,sans-serif;background:#f0f4ff;padding:20px;margin:0;color:#333;}
-        h1{margin:0 0 15px;}
-        .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-        .btn{padding:8px 12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
-        .reload{background:#007bff;color:white;}
-        .delete{background:#e74c3c;color:white;}
-        .record{background:white;border-radius:12px;padding:15px;margin:10px 0;box-shadow:0 2px 5px rgba(0,0,0,0.1);}
-        .imgs{display:flex;gap:10px;flex-wrap:wrap;}
-        img{border-radius:8px;max-width:100px;}
-        .info{margin-bottom:8px;}
-        #search{padding:8px;width:100%;max-width:300px;border:1px solid #ccc;border-radius:6px;margin-bottom:15px;}
-        @media(max-width:768px){img{max-width:80px;}}
-      </style>
-    </head>
-    <body>
-      <div class="top">
-        <h1>📋 Uploaded Verifications</h1>
-        <button class="btn reload" onclick="window.location.href='/dashboard?key=${key}'">🔄 Reload</button>
-      </div>
+  <!doctype html>
+  <html>
+  <head>
+    <title>Admin Dashboard - Verifications</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+      body{font-family:Arial,sans-serif;background:#f0f4ff;padding:20px;margin:0;color:#333;}
+      h1{margin:0 0 15px;}
+      .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+      .btn{padding:8px 12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
+      .reload{background:#007bff;color:white;}
+      .delete{background:#e74c3c;color:white;}
+      .record{background:white;border-radius:12px;padding:15px;margin:10px 0;box-shadow:0 2px 5px rgba(0,0,0,0.1);}
+      .imgs{display:flex;gap:10px;flex-wrap:wrap;}
+      img{border-radius:8px;max-width:100px;}
+      .info{margin-bottom:8px;}
+      #search{padding:8px;width:100%;max-width:300px;border:1px solid #ccc;border-radius:6px;margin-bottom:15px;}
+      @media(max-width:768px){img{max-width:80px;}}
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <h1>📋 Uploaded Verifications</h1>
+      <button class="btn reload" onclick="window.location.href='/dashboard?key=${key}'">🔄 Reload</button>
+    </div>
 
-      <input type="text" id="search" placeholder="🔍 Search by name, ID, or phone..." onkeyup="filterRecords()" />
-      <p>Total records: ${records.length}</p>
+    <input type="text" id="search" placeholder="🔍 Search by name, ID, or phone..." onkeyup="filterRecords()" />
+    <p>Total records: ${records.length}</p>
 
-      <div id="records">
-        ${records
-          .map(
-            (r, i) => `
-          <div class="record" data-name="${r.name.toLowerCase()}" data-id="${r.idNumber}" data-phone="${r.phone}">
-            <div class="info"><strong>${i + 1}. ${escapeHtml(r.name)}</strong> — ID: ${escapeHtml(
-              r.idNumber
-            )}</div>
-            <div class="info">📞 ${escapeHtml(r.phone)} | <small>${new Date(
-              r.createdAt
-            ).toLocaleString()}</small></div>
-            <div class="imgs">
-              <a href="${r.selfie}" target="_blank"><img src="${r.selfie}" alt="selfie"/></a>
-              <a href="${r.frontID}" target="_blank"><img src="${r.frontID}" alt="frontID"/></a>
-              <a href="${r.backID}" target="_blank"><img src="${r.backID}" alt="backID"/></a>
-            </div>
-            <form method="POST" action="/delete" style="margin-top:10px;">
-              <input type="hidden" name="key" value="${key}">
-              <input type="hidden" name="id" value="${r.id}">
-              <button class="btn delete" onclick="return confirm('Delete this record permanently?')">🗑 Delete</button>
-            </form>
+    <div id="records">
+      ${records
+        .map(
+          (r, i) => `
+        <div class="record" data-name="${r.name.toLowerCase()}" data-id="${r.idNumber}" data-phone="${r.phone}">
+          <div class="info"><strong>${i + 1}. ${escapeHtml(r.name)}</strong> — ID: ${escapeHtml(r.idNumber)}</div>
+          <div class="info">📞 ${escapeHtml(r.phone)} | <small>${new Date(
+            r.createdAt
+          ).toLocaleString()}</small></div>
+          <div class="imgs">
+            <a href="${r.selfie}" target="_blank"><img src="${r.selfie}" alt="selfie"/></a>
+            <a href="${r.frontID}" target="_blank"><img src="${r.frontID}" alt="frontID"/></a>
+            <a href="${r.backID}" target="_blank"><img src="${r.backID}" alt="backID"/></a>
           </div>
-        `
-          )
-          .join("")}
-      </div>
+          <form method="POST" action="/delete" style="margin-top:10px;">
+            <input type="hidden" name="key" value="${key}">
+            <input type="hidden" name="id" value="${r.id}">
+            <button class="btn delete" onclick="return confirm('Delete this record permanently?')">🗑 Delete</button>
+          </form>
+        </div>`
+        )
+        .join("")}
+    </div>
 
-      <script>
-        function filterRecords() {
-          const query = document.getElementById("search").value.toLowerCase();
-          const records = document.querySelectorAll(".record");
-          records.forEach(r => {
-            const name = r.getAttribute("data-name");
-            const id = r.getAttribute("data-id");
-            const phone = r.getAttribute("data-phone");
-            if (name.includes(query) || id.includes(query) || phone.includes(query)) {
-              r.style.display = "block";
-            } else {
-              r.style.display = "none";
-            }
-          });
-        }
-      </script>
-    </body>
-    </html>
-  `;
-
+    <script>
+      function filterRecords() {
+        const query = document.getElementById("search").value.toLowerCase();
+        const records = document.querySelectorAll(".record");
+        records.forEach(r => {
+          const name = r.getAttribute("data-name");
+          const id = r.getAttribute("data-id");
+          const phone = r.getAttribute("data-phone");
+          r.style.display = name.includes(query) || id.includes(query) || phone.includes(query) ? "block" : "none";
+        });
+      }
+    </script>
+  </body>
+  </html>`;
   res.send(html);
 });
 
-// Delete endpoint
+// ✅ Delete record + Cloudinary cleanup
 app.post("/delete", express.urlencoded({ extended: true }), async (req, res) => {
   const { key, id } = req.body;
   if (key !== ADMIN_KEY)
@@ -251,8 +276,7 @@ app.post("/delete", express.urlencoded({ extended: true }), async (req, res) => 
 
   const records = await readRecords();
   const record = records.find((r) => r.id === id);
-  if (!record)
-    return res.status(404).send("<h3>Record not found</h3>");
+  if (!record) return res.status(404).send("<h3>Record not found</h3>");
 
   try {
     await Promise.all([
@@ -269,7 +293,7 @@ app.post("/delete", express.urlencoded({ extended: true }), async (req, res) => 
   res.redirect(`/dashboard?key=${key}`);
 });
 
-// Global error handler
+// ✅ Global error handler
 app.use((err, req, res, next) => {
   console.error("💥 Global Error:", err);
   res
@@ -277,6 +301,6 @@ app.use((err, req, res, next) => {
     .json({ success: false, message: "Internal Server Error", error: err.message });
 });
 
-// Start server
+// ✅ Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
