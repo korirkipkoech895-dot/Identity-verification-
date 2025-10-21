@@ -1,12 +1,12 @@
 /**
- * server.js
- * Identity verification backend:
- * - Accepts POST /upload with fields: name, idNumber, phone AND files: selfie, frontID, backID
- * - Uploads images to Cloudinary (folder: swift_verifications)
- * - Saves immutable records to data.json (append, persistent)
- * - Provides admin login at /admin and dashboard at /dashboard (password: 3462)
- *
- * Note: For production, put Cloudinary secrets in env vars. After testing, regenerate your secret.
+ * server.js (Final Enhanced Version)
+ * ✅ Uploads verification images to Cloudinary
+ * ✅ Saves immutable records in data.json
+ * ✅ Admin dashboard (password-protected)
+ * ✅ Delete unnecessary/declined records
+ * ✅ Responsive, colourful dashboard
+ * ✅ Global error handler
+ * ✅ Live search (filter by name, ID, phone)
  */
 
 import express from "express";
@@ -19,9 +19,9 @@ import path from "path";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 const DATA_FILE = path.join(process.cwd(), "data.json");
+const ADMIN_KEY = "3462"; // keep your password
 
-// Allow only your frontend origin (change if needed) OR allow all during testing.
-// Using your frontend origin:
+// CORS
 app.use(
   cors({
     origin: "https://identity-verification-swift-loan.onrender.com",
@@ -31,16 +31,14 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// CLOUDINARY configuration
+// CLOUDINARY config (your keys preserved)
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "dn3nftart",
-  api_key: process.env.CLOUDINARY_API_KEY || "122762874192689",
-  // For safety we prefer env var; falls back to the old secret if present.
-  api_secret:
-    process.env.CLOUDINARY_API_SECRET || "InDumjw2GvObWmUwqYJLKwSCzf0",
+  cloud_name: "dn3nftart",
+  api_key: "122762874192689",
+  api_secret: "InDumjw2GvObWmUwqYJLKwSCzf0",
 });
 
-// Ensure data file exists
+// --- Helper functions ---
 async function ensureDataFile() {
   try {
     await fs.access(DATA_FILE);
@@ -49,23 +47,34 @@ async function ensureDataFile() {
   }
 }
 
-// Read saved records
 async function readRecords() {
   await ensureDataFile();
   const raw = await fs.readFile(DATA_FILE, "utf8");
   return JSON.parse(raw || "[]");
 }
 
-// Append a new record (immutable - we do not provide delete/overwrite endpoints)
-async function appendRecord(record) {
-  const records = await readRecords();
-  records.push(record);
+async function saveRecords(records) {
   await fs.writeFile(DATA_FILE, JSON.stringify(records, null, 2), "utf8");
 }
 
-// Basic root
+async function appendRecord(record) {
+  const records = await readRecords();
+  records.push(record);
+  await saveRecords(records);
+}
+
+function escapeHtml(str = "") {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// --- ROUTES ---
 app.get("/", (req, res) => {
-  res.send("✅ Identity Verification Backend Running");
+  res.send("✅ Identity Verification Backend Running (Final Enhanced)");
 });
 
 // Upload endpoint
@@ -76,53 +85,27 @@ app.post(
     { name: "frontID", maxCount: 1 },
     { name: "backID", maxCount: 1 },
   ]),
-  async (req, res) => {
+  async (req, res, next) => {
     try {
-      // Basic server-side validation for text fields
       const { name, idNumber, phone } = req.body || {};
-      if (!name || !idNumber || !phone) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Missing required fields." });
-      }
+      if (!name || !idNumber || !phone)
+        return res.status(400).json({ success: false, message: "Missing required fields." });
 
-      // Validate name (non-empty)
-      if (typeof name !== "string" || name.trim().length < 2) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Invalid name provided." });
-      }
+      if (!/^\d{8,9}$/.test(idNumber))
+        return res.status(400).json({ success: false, message: "ID number must be 8 or 9 digits." });
 
-      // Validate ID: 8 or 9 digits
-      if (!/^\d{8,9}$/.test(idNumber)) {
+      if (!/^2547\d{8}$/.test(phone))
         return res.status(400).json({
           success: false,
-          message: "ID number must be 8 or 9 digits.",
+          message: "Phone must be in 2547XXXXXXXX format.",
         });
-      }
 
-      // Validate phone: expects 2547XXXXXXXX (254 + 9 digits) => total 12 digits
-      if (!/^2547\d{8}$/.test(phone)) {
+      if (!req.files || !req.files.selfie || !req.files.frontID || !req.files.backID)
         return res.status(400).json({
           success: false,
-          message:
-            "Phone must be in 2547XXXXXXXX format (e.g. 2547XXXXXXXX).",
+          message: "All three image files are required.",
         });
-      }
 
-      // Validate files present
-      if (
-        !req.files ||
-        !req.files.selfie ||
-        !req.files.frontID ||
-        !req.files.backID
-      ) {
-        return res
-          .status(400)
-          .json({ success: false, message: "All three image files are required." });
-      }
-
-      // Upload each file to Cloudinary under folder swift_verifications
       const uploaded = {};
       for (const key of ["selfie", "frontID", "backID"]) {
         const file = req.files[key][0];
@@ -135,37 +118,32 @@ app.post(
           url: uploadResult.secure_url,
           public_id: uploadResult.public_id,
         };
+        await fs.unlink(file.path); // cleanup temp file
       }
 
-      // Create immutable record
       const record = {
-        id: Date.now().toString(), // simple unique id
+        id: Date.now().toString(),
         name: name.trim(),
-        idNumber: idNumber,
-        phone: phone,
+        idNumber,
+        phone,
         selfie: uploaded.selfie.url,
         frontID: uploaded.frontID.url,
         backID: uploaded.backID.url,
+        selfie_id: uploaded.selfie.public_id,
+        frontID_id: uploaded.frontID.public_id,
+        backID_id: uploaded.backID.public_id,
         createdAt: new Date().toISOString(),
       };
 
-      // Append to data.json
       await appendRecord(record);
-
-      // Return success (do not include raw storage paths beyond urls if you want)
-      return res.json({ success: true, message: "Uploaded", record });
+      res.json({ success: true, message: "Uploaded successfully", record });
     } catch (err) {
-      console.error("Upload error:", err);
-      return res
-        .status(500)
-        .json({ success: false, message: "Server upload error." });
+      next(err);
     }
   }
 );
 
-// ---------- ADMIN PAGES ----------
-
-// Admin login page
+// Admin login
 app.get("/admin", (req, res) => {
   res.send(`
     <h2>🔒 Admin Login</h2>
@@ -176,19 +154,15 @@ app.get("/admin", (req, res) => {
   `);
 });
 
-// Dashboard - password protected. Password: 3462
+// Dashboard with search + delete
 app.get("/dashboard", async (req, res) => {
   const key = req.query.key || "";
-  const ADMIN_KEY = "3462";
-
-  if (key !== ADMIN_KEY) {
+  if (key !== ADMIN_KEY)
     return res.status(403).send("<h3>❌ Access Denied — wrong password</h3>");
-  }
 
-  // Read records from data.json
   const records = await readRecords();
+  records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  // Dashboard HTML with reload button
   const html = `
     <!doctype html>
     <html>
@@ -196,61 +170,72 @@ app.get("/dashboard", async (req, res) => {
       <title>Admin Dashboard - Verifications</title>
       <meta name="viewport" content="width=device-width,initial-scale=1" />
       <style>
-        body{font-family:Arial,Helvetica,sans-serif;padding:20px;background:#f5f7fb}
-        h1{margin-bottom:10px}
-        .top { display:flex; gap:10px; align-items:center; margin-bottom:15px; }
-        button{padding:8px 12px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer}
-        table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden}
-        th,td{padding:10px;border-bottom:1px solid #eee;text-align:left;vertical-align:middle}
-        th{background:#fafafa}
-        img{border-radius:6px;max-width:120px;height:auto;display:block}
-        .small{font-size:12px;color:#666}
+        body{font-family:Arial,sans-serif;background:#f0f4ff;padding:20px;margin:0;color:#333;}
+        h1{margin:0 0 15px;}
+        .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+        .btn{padding:8px 12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
+        .reload{background:#007bff;color:white;}
+        .delete{background:#e74c3c;color:white;}
+        .record{background:white;border-radius:12px;padding:15px;margin:10px 0;box-shadow:0 2px 5px rgba(0,0,0,0.1);}
+        .imgs{display:flex;gap:10px;flex-wrap:wrap;}
+        img{border-radius:8px;max-width:100px;}
+        .info{margin-bottom:8px;}
+        #search{padding:8px;width:100%;max-width:300px;border:1px solid #ccc;border-radius:6px;margin-bottom:15px;}
+        @media(max-width:768px){img{max-width:80px;}}
       </style>
     </head>
     <body>
       <div class="top">
         <h1>📋 Uploaded Verifications</h1>
-        <div style="margin-left:auto">
-          <button onclick="window.location.href='/dashboard?key=${ADMIN_KEY}'">Reload</button>
-        </div>
+        <button class="btn reload" onclick="window.location.href='/dashboard?key=${key}'">🔄 Reload</button>
       </div>
 
-      <p class="small">Total records: ${records.length} (records are stored permanently on server/data.json and cannot be erased via this interface)</p>
+      <input type="text" id="search" placeholder="🔍 Search by name, ID, or phone..." onkeyup="filterRecords()" />
+      <p>Total records: ${records.length}</p>
 
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Name</th>
-            <th>ID Number</th>
-            <th>Phone</th>
-            <th>Selfie</th>
-            <th>ID Front</th>
-            <th>ID Back</th>
-            <th>Uploaded At</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${records
-            .map(
-              (r, i) => `
-            <tr>
-              <td>${i + 1}</td>
-              <td>${escapeHtml(r.name)}</td>
-              <td>${escapeHtml(r.idNumber)}</td>
-              <td>${escapeHtml(r.phone)}</td>
-              <td><a href="${r.selfie}" target="_blank"><img src="${r.selfie}" alt="selfie"/></a></td>
-              <td><a href="${r.frontID}" target="_blank"><img src="${r.frontID}" alt="frontID"/></a></td>
-              <td><a href="${r.backID}" target="_blank"><img src="${r.backID}" alt="backID"/></a></td>
-              <td>${new Date(r.createdAt).toLocaleString()}</td>
-            </tr>
-          `
-            )
-            .join("")}
-        </tbody>
-      </table>
+      <div id="records">
+        ${records
+          .map(
+            (r, i) => `
+          <div class="record" data-name="${r.name.toLowerCase()}" data-id="${r.idNumber}" data-phone="${r.phone}">
+            <div class="info"><strong>${i + 1}. ${escapeHtml(r.name)}</strong> — ID: ${escapeHtml(
+              r.idNumber
+            )}</div>
+            <div class="info">📞 ${escapeHtml(r.phone)} | <small>${new Date(
+              r.createdAt
+            ).toLocaleString()}</small></div>
+            <div class="imgs">
+              <a href="${r.selfie}" target="_blank"><img src="${r.selfie}" alt="selfie"/></a>
+              <a href="${r.frontID}" target="_blank"><img src="${r.frontID}" alt="frontID"/></a>
+              <a href="${r.backID}" target="_blank"><img src="${r.backID}" alt="backID"/></a>
+            </div>
+            <form method="POST" action="/delete" style="margin-top:10px;">
+              <input type="hidden" name="key" value="${key}">
+              <input type="hidden" name="id" value="${r.id}">
+              <button class="btn delete" onclick="return confirm('Delete this record permanently?')">🗑 Delete</button>
+            </form>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
 
-      <p class="small">Note: There is no delete endpoint. To remove records manually, edit the server file system directly (not recommended).</p>
+      <script>
+        function filterRecords() {
+          const query = document.getElementById("search").value.toLowerCase();
+          const records = document.querySelectorAll(".record");
+          records.forEach(r => {
+            const name = r.getAttribute("data-name");
+            const id = r.getAttribute("data-id");
+            const phone = r.getAttribute("data-phone");
+            if (name.includes(query) || id.includes(query) || phone.includes(query)) {
+              r.style.display = "block";
+            } else {
+              r.style.display = "none";
+            }
+          });
+        }
+      </script>
     </body>
     </html>
   `;
@@ -258,17 +243,40 @@ app.get("/dashboard", async (req, res) => {
   res.send(html);
 });
 
-// Utility to escape HTML
-function escapeHtml(str = "") {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
+// Delete endpoint
+app.post("/delete", express.urlencoded({ extended: true }), async (req, res) => {
+  const { key, id } = req.body;
+  if (key !== ADMIN_KEY)
+    return res.status(403).send("<h3>❌ Unauthorized</h3>");
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  const records = await readRecords();
+  const record = records.find((r) => r.id === id);
+  if (!record)
+    return res.status(404).send("<h3>Record not found</h3>");
+
+  try {
+    await Promise.all([
+      cloudinary.uploader.destroy(record.selfie_id),
+      cloudinary.uploader.destroy(record.frontID_id),
+      cloudinary.uploader.destroy(record.backID_id),
+    ]);
+  } catch (err) {
+    console.warn("⚠️ Cloudinary deletion warning:", err.message);
+  }
+
+  const updated = records.filter((r) => r.id !== id);
+  await saveRecords(updated);
+  res.redirect(`/dashboard?key=${key}`);
 });
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("💥 Global Error:", err);
+  res
+    .status(500)
+    .json({ success: false, message: "Internal Server Error", error: err.message });
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
