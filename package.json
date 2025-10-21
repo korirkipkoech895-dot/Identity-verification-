@@ -1,7 +1,7 @@
 {
-  "name": "dn3nftart-photo-upload",
+  "name": "identity-verification-backend",
   "version": "1.0.0",
-  "description": "Node.js + Cloudinary photo upload (selfie and ID) with open CORS",
+  "description": "Photo upload backend for Swift Loan identity verification",
   "main": "server.js",
   "type": "module",
   "scripts": {
