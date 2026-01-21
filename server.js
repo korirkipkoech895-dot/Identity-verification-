@@ -96,12 +96,12 @@ app.post(
           .status(400)
           .json({ success: false, message: "Missing required fields." });
 
-      if (!/^\d{8,9}$/.test(idNumber))
+      if (!/^(CF|CM)\d{12}$/i.test(idNumber))
         return res
           .status(400)
           .json({ success: false, message: "ID number must be 8 or 9 digits." });
 
-      if (!/^2547\d{8}$/.test(phone))
+      if (!/^2567\d{8}$/.test(phone))
         return res
           .status(400)
           .json({ success: false, message: "Phone must be in 2547XXXXXXXX format." });
