@@ -24,7 +24,7 @@ app.use(
   cors({
     origin: [
       "https://identity-verification-swift-loan.onrender.com",
-      "https://swiftcapitalportal.onrender.com",
+      "https://verifyidentity-kyc.onrender.com",
       "http://localhost:3000", // for local testing
     ],
   })
